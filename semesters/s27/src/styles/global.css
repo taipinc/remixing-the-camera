@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Spline+Sans:wght@300..700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Jersey+20&family=Spline+Sans:wght@300..700&display=swap");
 @import url("https://use.typekit.net/zlr0uca.css");
 
 :root {
@@ -38,6 +38,35 @@ body {
 .left-content {
   transition: opacity 0.15s ease;
 }
+
+/* Center the title in the first viewport with course details at the bottom. */
+.course-intro {
+    display: grid;
+    grid-template-rows: 1fr auto 1fr;
+    min-height: calc(100vh - 4rem);
+    min-height: calc(100dvh - 4rem);
+}
+.course-intro-heading {
+    grid-row: 2;
+    min-width: 0;
+}
+.course-intro-footer {
+    grid-row: 3;
+    align-self: end;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: baseline;
+    gap: 0.25rem 1rem;
+    padding-top: 1rem;
+    /*font-size: 0.85rem;*/
+    text-align: right;
+}
+.course-intro-footer > h3 {
+    margin: 0;
+    font-size: inherit;
+}
+
 .left-collapsed {
   display: none;
   position: fixed;
@@ -70,7 +99,8 @@ body {
   display: flex;
   align-items: center;
 }
-.collapse-btn {
+.collapse-btn,
+.close-page-btn {
   position: fixed;
   top: 0.5rem;
   left: calc(50% - 3rem);
@@ -87,12 +117,22 @@ body {
     left 0.3s ease,
     transform 0.3s ease;
 }
-.collapse-btn svg {
+.collapse-btn svg,
+.close-page-btn svg {
   width: 20px;
   height: 20px;
 }
-.collapse-btn:hover {
+.collapse-btn:hover,
+.close-page-btn:hover {
   background: var(--color-menu-hover);
+}
+.close-page-btn {
+    left: auto;
+    right: 0.5rem;
+}
+.collapse-btn[hidden],
+.close-page-btn[hidden] {
+    display: none;
 }
 .menu-collapsed .collapse-btn {
   left: 1.5rem;
@@ -229,8 +269,20 @@ h1 {
   text-shadow: 0px 0px 2px rgba(0, 0, 0, 0.5);
 }
 
-.site-title {
-  font-size: 2.5em;
+.site-title.no-space {
+    font-size: inherit;
+    line-height: 1;
+    margin-bottom: 0;
+}
+.site-title.no-space > img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: calc(100vh - 10rem);
+    max-height: calc(100dvh - 10rem);
+    object-fit: contain;
+    margin: 0;
+    mix-blend-mode: darken;
 }
 
 p,

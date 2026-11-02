@@ -101,8 +101,9 @@ const menuHtml = transformLinks(await marked(menuMd));
 const defaultMd = await readFile('src/content/default.md', 'utf-8');
 const { data: defaultData, content: defaultBody } = matter(defaultMd);
 const defaultContentHtml = transformLinks(await marked(defaultBody));
+const hasDefaultContent = defaultContentHtml.replace(/<!--[\s\S]*?-->/g, '').trim().length > 0;
 const defaultHtml = defaultData.image
-    ? `<div class="hero-page" style="background-image: url('${defaultData.image}')"><div class="hero-content">${defaultContentHtml}</div></div>`
+    ? `<div class="hero-page" style="background-image: url('${defaultData.image}')">${hasDefaultContent ? `<div class="hero-content">${defaultContentHtml}</div>` : ''}</div>`
     : defaultContentHtml;
 
 // Read all content files for the right panel
@@ -280,6 +281,11 @@ const contentJson = JSON.stringify(dynamicContent);
         const dynamicContent = JSON.parse(contentData.textContent);
         const contentArea = document.getElementById('content-display');
         const defaultContent = contentArea.innerHTML;
+        const closePageBtn = document.querySelector('.close-page-btn');
+
+        closePageBtn.addEventListener('click', () => {
+            window.location.hash = '';
+        });
 
         // Track active p5 instances for cleanup
         let activeP5Instances = [];
@@ -346,6 +352,12 @@ const contentJson = JSON.stringify(dynamicContent);
 
         function loadContent(contentKey) {
             destroyP5Instances();
+            const isContentOpen = Boolean(contentKey);
+            document.querySelector('.collapse-btn').hidden = !isContentOpen;
+            closePageBtn.hidden = !isContentOpen;
+            if (!isContentOpen) {
+                document.querySelector('.container').classList.remove('menu-collapsed');
+            }
             if (!contentKey) {
                 contentArea.innerHTML = defaultContent;
             } else if (dynamicContent[contentKey]) {

@@ -1,11 +1,13 @@
-  <h1 class="no-space site-title">Remixing the Camera</h1>
+<section class="course-intro">
+<div class="course-intro-heading">
 
-  <h3 class="no-space">Spring 2027 / Shabtai Pinchevsky</h3>
+  <h1 class="no-space site-title"><img src="/images/title-clean.png" alt="Remixing the Camera" width="653" height="619"></h1>
 
-<br>
-
-pinchevs@newschool.edu
-
+</div>
+<div class="course-intro-footer">
+  Spring 2027 / <a href="mailto:pinchevs@newschool.edu">Shabtai Pinchevsky</a>
+</div>
+</section>
 
 ## Course Description
 
