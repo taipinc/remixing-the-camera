@@ -1,0 +1,44 @@
+---
+import '../styles/global.css';
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}favicon.svg`} />
+    <meta name="base-url" content={import.meta.env.BASE_URL} />
+    <title>Remixing the Camera / Spring 2027</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="left-column">
+            <button class="collapse-btn" aria-label="Collapse menu">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M10 12L6 8l4-4v8z"/>
+                </svg>
+            </button>
+            <div class="left-content">
+                <slot name="left" />
+            </div>
+            <div class="left-collapsed">
+                <span>Remixing the Camera / Spring 2027</span>
+            </div>
+        </div>
+        <div class="right-column">
+            <slot name="right" />
+        </div>
+    </div>
+    <script is:inline>
+        const container = document.querySelector('.container');
+        const collapseBtn = document.querySelector('.collapse-btn');
+
+        collapseBtn.addEventListener('click', () => {
+            container.classList.toggle('menu-collapsed');
+        });
+    </script>
+    <slot />
+</body>
+</html>

@@ -1,0 +1,33 @@
+{
+  "name": "remixing-the-camera",
+  "private": true,
+  "type": "module",
+  "version": "0.0.1",
+  "workspaces": [
+    "semesters/*"
+  ],
+  "engines": {
+    "node": ">=22.23.4",
+    "npm": ">=9.6.5"
+  },
+  "allowScripts": {
+    "fsevents@2.3.3": false
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace=s27",
+    "build": "node scripts/build.mjs",
+    "preview": "astro preview",
+    "check": "npm run check --workspaces"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.6",
+    "astro": "^7.4.4",
+    "gray-matter": "^4.0.3",
+    "highlight.js": "^11.11.1",
+    "marked": "^17.0.1",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2"
+  }
+}

@@ -1,0 +1,436 @@
+---
+import MainLayout from '../layouts/MainLayout.astro';
+import { readFile, readdir } from 'node:fs/promises';
+import { marked } from 'marked';
+import hljs from 'highlight.js';
+import matter from 'gray-matter';
+import path from 'node:path';
+
+marked.use({
+    renderer: {
+        code({ text, lang }) {
+            if (lang && hljs.getLanguage(lang)) {
+                const highlighted = hljs.highlight(text, { language: lang }).value;
+                return `<pre><code class="hljs language-${lang}">${highlighted}</code></pre>`;
+            }
+            const highlighted = hljs.highlightAuto(text).value;
+            return `<pre><code class="hljs">${highlighted}</code></pre>`;
+        }
+    },
+    extensions: [{
+        name: 'highlight',
+        level: 'inline',
+        start(src) {
+            return src.indexOf('==');
+        },
+        tokenizer(src) {
+            const match = src.match(/^==([^\n]+?)==/);
+            if (match) {
+                return { type: 'highlight', raw: match[0], text: match[1] };
+            }
+        },
+        renderer(token) {
+            return `<mark>${token.text}</mark>`;
+        },
+    }],
+});
+
+// Helper to read all markdown files from a directory recursively
+async function readContentDir(dir: string, basePath: string = ''): Promise<Record<string, string>> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    const content: Record<string, string> = {};
+
+    for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            const subContent = await readContentDir(fullPath, path.join(basePath, entry.name));
+            Object.assign(content, subContent);
+        } else if (entry.name.endsWith('.md')) {
+            const key = path.join(basePath, entry.name.replace('.md', ''));
+            const md = await readFile(fullPath, 'utf-8');
+            const { content: body } = matter(md);
+            content[key] = transformLinks(await marked(body));
+        }
+    }
+    return content;
+}
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+// Transform @links to data-content attributes, external links and files to target="_blank"
+function transformLinks(html: string): string {
+    return html
+        // Fix root-relative image src paths to include the base path
+        .replace(/<img([^>]*) src="(\/[^"]+)"([^>]*)>/g, (match, before, src, after) => {
+            if (src.startsWith(BASE)) return match;
+            return `<img${before} src="${BASE}${src}"${after}>`;
+        })
+        // Transform @key links to data-content with emojis
+        .replace(/<a href="@([^"]+)">([^<]+)<\/a>/g, (match, contentKey, linkText) => {
+            const folder = contentKey.split('/')[0];
+            let emoji = '';
+
+            // Check if it's a project (either in the content key or link text)
+            if (contentKey.toLowerCase().includes('project') || linkText.toLowerCase().includes('project')) {
+                emoji = '🚀 ';
+            } else if (folder === 'workshops') {
+                emoji = '🧰 ';
+            } else if (folder === 'assignments') {
+                emoji = '🧩 ';
+            } else if (folder === 'readings') {
+                emoji = '📙 ';
+            } else if (folder === 'presentations') {
+                emoji = '🖼️ ';
+            }
+            return `<a href="#" data-content="${contentKey}"><span class="link-emoji">${emoji}</span>${linkText}</a>`;
+        })
+        // Add target="_blank" to external links (and emoji for lectures)
+        .replace(/<a href="(https?:\/\/[^"]+)">([^<]+)<\/a>/g, (match, url, linkText) => {
+            const emoji = linkText.trim().startsWith('Lecture') ? '<span class="link-emoji">🧑🏻‍🏫</span>' : '';
+            return `<a href="${url}" target="_blank" rel="noopener" class="external-link">${emoji}${linkText}</a>`;
+        })
+        // Add target="_blank" to file links (pdf, doc, etc.)
+        .replace(/<a href="([^"]+\.(pdf|doc|docx|xls|xlsx|ppt|pptx|zip))">/gi, '<a href="$1" target="_blank" rel="noopener">');
+}
+
+// Read menu content
+const menuMd = await readFile('src/content/menu.md', 'utf-8');
+const menuHtml = transformLinks(await marked(menuMd));
+
+// Read default content with frontmatter support
+const defaultMd = await readFile('src/content/default.md', 'utf-8');
+const { data: defaultData, content: defaultBody } = matter(defaultMd);
+const defaultContentHtml = transformLinks(await marked(defaultBody));
+const defaultHtml = defaultData.image
+    ? `<div class="hero-page" style="background-image: url('${defaultData.image}')"><div class="hero-content">${defaultContentHtml}</div></div>`
+    : defaultContentHtml;
+
+// Read all content files for the right panel
+const dynamicContent = await readContentDir('src/content');
+
+// Read and parse all week files
+const weekFiles = await readdir('src/content/weeks');
+
+interface WeekData {
+    order: number;
+    week: string | number;
+    date: string;
+    theme?: string;
+    status?: string;
+    contentHtml: string;
+    dueHtml: string;
+    filename: string;
+}
+
+const weeks: WeekData[] = await Promise.all(
+    weekFiles
+        .filter((f: string) => f.endsWith('.md'))
+        .map(async (filename: string) => {
+            const content = await readFile(`src/content/weeks/${filename}`, 'utf-8');
+            const { data, content: body } = matter(content);
+
+            // Extract Content and Due sections from the markdown body
+            const contentMatch = body.match(/## Content\s*([\s\S]*?)(?=## Due|$)/);
+            const dueMatch = body.match(/## Due\s*([\s\S]*?)$/);
+
+            const contentHtml = contentMatch ? transformLinks(await marked(contentMatch[1].trim())) : '';
+            const dueHtml = dueMatch ? transformLinks(await marked(dueMatch[1].trim())) : '';
+
+            return {
+                ...data,
+                contentHtml,
+                dueHtml,
+                filename
+            } as WeekData;
+        })
+);
+
+// Sort by order
+weeks.sort((a: WeekData, b: WeekData) => a.order - b.order);
+
+// --- Collect content items for the tab panels ---
+interface ContentItem {
+    title: string;
+    key?: string;
+    url?: string;
+}
+
+async function getContentItems(dir: string): Promise<ContentItem[]> {
+    try {
+        const files = await readdir(`src/content/${dir}`);
+        const items: ContentItem[] = await Promise.all(
+            files.filter((f: string) => f.endsWith('.md')).sort().map(async (f: string) => {
+                const raw = await readFile(`src/content/${dir}/${f}`, 'utf-8');
+                const { content: body } = matter(raw);
+                const titleMatch = body.match(/^#\s+(.+)/m);
+                return {
+                    title: titleMatch ? titleMatch[1] : f.replace('.md', ''),
+                    key: `${dir}/${f.replace('.md', '')}`,
+                };
+            })
+        );
+        return items;
+    } catch {
+        return [];
+    }
+}
+
+const tabs: { id: string; label: string; emoji: string; items: ContentItem[] }[] = [
+    { id: 'assignments', label: 'Assignments', emoji: '🧩', items: await getContentItems('assignments') },
+    { id: 'readings', label: 'Readings', emoji: '📙', items: await getContentItems('readings') },
+    { id: 'projects', label: 'Projects', emoji: '🚀', items: await getContentItems('projects') },
+    { id: 'presentations', label: 'Presentations', emoji: '🖼️', items: await getContentItems('presentations') },
+    { id: 'workshops', label: 'Workshops', emoji: '🧰', items: await getContentItems('workshops') },
+];
+
+// Extract lectures from week files
+const lectureItems: ContentItem[] = [];
+for (const week of weeks) {
+    const weekContent = await readFile(`src/content/weeks/${week.filename}`, 'utf-8');
+    const { content: body } = matter(weekContent);
+    const contentSection = body.match(/## Content\s*([\s\S]*?)(?=## Due|$)/);
+    if (contentSection) {
+        const lines = contentSection[1].split('\n');
+        for (const line of lines) {
+            const linkedMatch = line.match(/\[Lecture:\s*(.+?)\]\((.+?)\)/);
+            if (linkedMatch) {
+                lectureItems.push({ title: `Lecture: ${linkedMatch[1].trim()}`, url: linkedMatch[2] });
+            } else {
+                const unlinkedMatch = line.match(/(?:^|\-\s*)Lecture:\s*(.+)/);
+                if (unlinkedMatch) {
+                    lectureItems.push({ title: `Lecture: ${unlinkedMatch[1].trim()}` });
+                }
+            }
+        }
+    }
+}
+tabs.push({ id: 'lectures', label: 'Lectures', emoji: '🧑🏻‍🏫', items: lectureItems });
+
+// Serialize content for client-side use
+const contentJson = JSON.stringify(dynamicContent);
+---
+
+<MainLayout>
+    <div slot="left">
+        <Fragment set:html={menuHtml} />
+        <h2>Content</h2>
+        <div class="content-tabs">
+            <div class="tab-buttons">
+                {tabs.map(tab => (
+                    <button class="tab-btn" data-tab={tab.id}>
+                        <span class="link-emoji">{tab.emoji}</span>{tab.label}
+                    </button>
+                ))}
+            </div>
+            {tabs.map(tab => (
+                <div class="tab-panel" id={`tab-${tab.id}`} hidden>
+                    <ul>
+                        {tab.items.map(item => (
+                            <li>
+                                {item.key ? (
+                                    <a href="#" data-content={item.key}>{item.title}</a>
+                                ) : item.url ? (
+                                    <a href={item.url} target="_blank" rel="noopener" class="external-link">{item.title}</a>
+                                ) : (
+                                    <span class="lecture-upcoming">{item.title}</span>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ))}
+        </div>
+
+        <h2>Schedule</h2>
+        <div class="schedule-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Week</th>
+                        <th>Date</th>
+                        <th>Content</th>
+                        <th>Due</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {weeks.map((week: WeekData) => (
+                        <tr class={`${week.week === 'BREAK' ? 'break-row' : ''} row-${week.status || 'future'}`}>
+                            <td>{week.week}</td>
+                            <td>{week.date}</td>
+                            <td>
+                                {week.theme && week.theme !== 'BREAK' && <span class="theme-title">{week.theme}</span>}
+                                <Fragment set:html={week.contentHtml} />
+                            </td>
+                            <td set:html={week.dueHtml}></td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div slot="right">
+        <div id="content-display" set:html={defaultHtml}></div>
+    </div>
+
+    <script is:inline id="content-data" type="application/json" set:html={contentJson}></script>
+
+    <script is:inline>
+        const contentData = document.getElementById('content-data');
+        const dynamicContent = JSON.parse(contentData.textContent);
+        const contentArea = document.getElementById('content-display');
+        const defaultContent = contentArea.innerHTML;
+
+        // Track active p5 instances for cleanup
+        let activeP5Instances = [];
+
+        function destroyP5Instances() {
+            activeP5Instances.forEach(instance => instance.remove());
+            activeP5Instances = [];
+        }
+
+        function initSketches() {
+            const sketchEls = contentArea.querySelectorAll('sketch');
+            sketchEls.forEach(el => {
+                const src = el.getAttribute('src');
+                if (!src) return;
+
+                const wrapper = document.createElement('div');
+                wrapper.className = 'sketch-wrapper';
+
+                const container = document.createElement('div');
+                container.className = 'sketch-container';
+
+                const replayBtn = document.createElement('button');
+                replayBtn.className = 'sketch-replay';
+                replayBtn.textContent = '↻ Replay';
+
+                wrapper.appendChild(container);
+                wrapper.appendChild(replayBtn);
+                el.replaceWith(wrapper);
+
+                const base = document.querySelector('meta[name="base-url"]').content.replace(/\/?$/, '/');
+                const url = base + 'sketches/' + src;
+
+                let currentInstance = null;
+                let sketchCode = null;
+
+                function startSketch() {
+                    if (currentInstance) {
+                        currentInstance.remove();
+                        activeP5Instances = activeP5Instances.filter(i => i !== currentInstance);
+                    }
+                    if (sketchCode) {
+                        const sketchFn = new Function('p', sketchCode);
+                        currentInstance = new p5(sketchFn, container);
+                        activeP5Instances.push(currentInstance);
+                    }
+                }
+
+                replayBtn.addEventListener('click', () => {
+                    startSketch();
+                });
+
+                fetch(url)
+                    .then(r => r.text())
+                    .then(code => {
+                        sketchCode = code;
+                        startSketch();
+                    })
+                    .catch(err => {
+                        container.textContent = 'Failed to load sketch: ' + src;
+                        console.error(err);
+                    });
+            });
+        }
+
+        function loadContent(contentKey) {
+            destroyP5Instances();
+            if (!contentKey) {
+                contentArea.innerHTML = defaultContent;
+            } else if (dynamicContent[contentKey]) {
+                contentArea.innerHTML = dynamicContent[contentKey];
+            } else {
+                contentArea.innerHTML = `<p>Content not found: ${contentKey}</p>`;
+            }
+            // Scroll right panel to top
+            document.querySelector('.right-column').scrollTop = 0;
+            initSketches();
+        }
+
+        // Handle click on content links
+        document.addEventListener('click', (e) => {
+            const link = e.target.closest('[data-content]');
+            if (!link) return;
+
+            e.preventDefault();
+            const contentKey = link.dataset.content;
+            window.location.hash = contentKey;
+
+            // On mobile, collapse menu when clicking internal links
+            if (window.matchMedia('(max-width: 768px)').matches) {
+                document.querySelector('.container').classList.add('menu-collapsed');
+            }
+        });
+
+        // Handle hash changes (back/forward buttons)
+        window.addEventListener('hashchange', () => {
+            const contentKey = window.location.hash.slice(1);
+            loadContent(contentKey);
+            // On mobile, toggle menu based on hash presence
+            if (window.matchMedia('(max-width: 768px)').matches) {
+                const container = document.querySelector('.container');
+                if (contentKey) {
+                    container.classList.add('menu-collapsed');
+                } else {
+                    container.classList.remove('menu-collapsed');
+                }
+            }
+        });
+
+        // Load content from URL on page load
+        if (window.location.hash) {
+            const contentKey = window.location.hash.slice(1);
+            loadContent(contentKey);
+            // On mobile, show content (collapse menu) if there's a hash
+            if (window.matchMedia('(max-width: 768px)').matches) {
+                document.querySelector('.container').classList.add('menu-collapsed');
+            }
+        }
+
+        // Tab toggle behavior
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabId = btn.dataset.tab;
+                const panel = document.getElementById('tab-' + tabId);
+                const isOpen = !panel.hidden;
+
+                // Close all panels and deactivate all buttons
+                document.querySelectorAll('.tab-panel').forEach(p => p.hidden = true);
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+
+                // If it wasn't open, open it
+                if (!isOpen) {
+                    panel.hidden = false;
+                    btn.classList.add('active');
+                }
+            });
+        });
+
+        // Animate schedule header shadow based on scroll position
+        const scheduleDiv = document.querySelector('.schedule-table');
+        const leftCol = document.querySelector('.left-column');
+        if (scheduleDiv && leftCol) {
+            const ths = scheduleDiv.querySelectorAll('th');
+            const maxShadow = 32; // 2rem in px
+            leftCol.addEventListener('scroll', () => {
+                const tableTop = scheduleDiv.getBoundingClientRect().top;
+                const colTop = leftCol.getBoundingClientRect().top;
+                const offset = colTop - tableTop + maxShadow;
+                const clamped = Math.max(0, Math.min(offset, maxShadow));
+                const clip = clamped + 1; // +1px for border
+                ths.forEach(th => th.style.clipPath = `inset(-${clip}px 0 0 0)`);
+            });
+        }
+    </script>
+</MainLayout>
